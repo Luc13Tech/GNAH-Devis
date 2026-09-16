@@ -1,36 +1,5 @@
-import type { Quote } from "./types";
+import type { Quote } from "@/lib/types";
 
-/**
- * Formate un montant avec le symbole de devise.
- */
-export function money(
-  amount: number,
-  symbol: string,
-): string {
-  const formatted = new Intl.NumberFormat("fr-FR", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(amount);
-
-  return `${formatted} ${symbol}`;
-}
-
-/**
- * Transforme un texte en format compatible avec
- * un nom de fichier.
- */
-export function slug(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .substring(0, 80);
-}
-
-/**
- * Retourne la date actuelle au format YYYY-MM-DD.
- */
 export function today(): string {
   const date = new Date();
 
@@ -38,7 +7,6 @@ export function today(): string {
   const month = String(
     date.getMonth() + 1,
   ).padStart(2, "0");
-
   const day = String(
     date.getDate(),
   ).padStart(2, "0");
@@ -46,94 +14,166 @@ export function today(): string {
   return `${year}-${month}-${day}`;
 }
 
+export function formatDate(
+  date: string,
+): string {
+  if (!date) {
+    return "";
+  }
+
+  const parts = date.split("-");
+
+  if (parts.length !== 3) {
+    return date;
+  }
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+export function formatQuoteNumber(
+  number: number,
+): string {
+  return `N°${String(number).padStart(
+    4,
+    "0",
+  )}`;
+}
+
 /**
- * Calcule les totaux d'un devis.
+ * Formatage professionnel des montants.
+ *
+ * Exemple :
+ * 200000   → 200.000 FCFA
+ * 3200000  → 3.200.000 FCFA
+ * 17500000 → 17.500.000 FCFA
+ *
+ * Le séparateur des milliers est volontairement
+ * un point "." et jamais "/" ou une virgule.
  */
-export function quoteTotals(quote: Quote) {
-  const subtotal = quote.items.reduce(
-    (total, item) =>
-      total +
-      Number(item.quantity || 0) *
-        Number(item.unitPrice || 0),
-    0,
-  );
+export function money(
+  value: number,
+  currencySymbol: string,
+): string {
+  const amount = Number(value) || 0;
 
-  const discount = Math.max(
-    0,
-    Number(quote.discount || 0),
-  );
+  const rounded =
+    Math.round(
+      (amount + Number.EPSILON) *
+        100,
+    ) / 100;
 
-  const taxableBase = Math.max(
-    0,
-    subtotal - discount,
-  );
+  const [integerPart, decimalPart] =
+    rounded
+      .toFixed(2)
+      .split(".");
+
+  const formattedInteger =
+    integerPart.replace(
+      /\B(?=(\d{3})+(?!\d))/g,
+      ".",
+    );
+
+  const formatted =
+    decimalPart === "00"
+      ? formattedInteger
+      : `${formattedInteger},${decimalPart}`;
+
+  return `${formatted} ${currencySymbol}`;
+}
+
+export function quoteTotals(
+  quote: Quote,
+) {
+  const subtotal =
+    quote.items.reduce(
+      (sum, item) => {
+        const quantity =
+          Number(
+            item.quantity,
+          ) || 0;
+
+        const unitPrice =
+          Number(
+            item.unitPrice,
+          ) || 0;
+
+        return (
+          sum +
+          quantity *
+            unitPrice
+        );
+      },
+      0,
+    );
+
+  const discount =
+    Math.max(
+      0,
+      Number(
+        quote.discount,
+      ) || 0,
+    );
+
+  const taxableAmount =
+    Math.max(
+      0,
+      subtotal - discount,
+    );
 
   const tax =
     quote.applyTax
-      ? taxableBase *
-        (Number(quote.taxRate || 0) / 100)
+      ? taxableAmount *
+        ((Number(
+          quote.taxRate,
+        ) || 0) /
+          100)
       : 0;
 
-  const total = taxableBase + tax;
+  const total =
+    taxableAmount + tax;
 
   return {
     subtotal,
     discount,
-    taxableBase,
+    taxableAmount,
     tax,
     total,
   };
 }
 
-/**
- * Formate une date YYYY-MM-DD en date française.
- */
-export function formatDate(
+export function slug(
   value: string,
 ): string {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(`${value}T00:00:00`);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+  return value
+    .normalize("NFD")
+    .replace(
+      /[\u0300-\u036f]/g,
+      "",
+    )
+    .toLowerCase()
+    .trim()
+    .replace(
+      /[^a-z0-9]+/g,
+      "-",
+    )
+    .replace(
+      /^-+|-+$/g,
+      "",
+    );
 }
 
-/**
- * Génère un numéro de devis à partir
- * du compteur automatique.
- */
-export function formatQuoteNumber(
-  number: number,
-): string {
-  return `N°${String(number).padStart(4, "0")}`;
-}
-
-/**
- * Génère le nom de fichier PDF du devis.
- *
- * Exemple :
- * Devis_N°0001_16-09-2026_Nom_Prenom.pdf
- */
 export function quoteFileName(
   quote: Quote,
 ): string {
-  const date = quote.date
-    .split("-")
-    .reverse()
-    .join("-");
-
   const clientName =
-    slug(quote.client.name) || "Client";
+    slug(
+      quote.client.name ||
+        "Client",
+    ) || "Client";
+
+  const date =
+    quote.date ||
+    today();
 
   return `Devis_${quote.number}_${date}_${clientName}.pdf`;
-}
+    }
